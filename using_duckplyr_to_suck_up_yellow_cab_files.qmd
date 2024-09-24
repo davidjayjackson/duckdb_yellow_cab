@@ -1,0 +1,36 @@
+---
+title: "Duckdb/Duckdbply: Yellow Cab"
+format: html
+editor: visual
+---
+
+
+```{r}
+library(tidyverse)
+library(duckdb)
+library(duckplyr)
+library(lubridate)
+```
+
+# Load NYC Yellow Cab data for most recent 19 months
+
+```{r}
+#| echo: false
+taxi <- duckplyr_df_from_parquet('./Data/*.parquet')
+dim(taxi)
+```
+```{r}
+taxi$ride_date <- as.Date(taxi$tpep_pickup_datetime)
+```
+# Plot Rides By Date
+
+```{r}
+taxi |> filter(ride_date >='2023-01-01' & ride_date <='2024-12-31') |>
+  
+  count(ride_date) |> ggplot(aes(x=ride_date,y=n)) + geom_line() +
+  geom_smooth(aes(x=ride_date,y=n)) +
+  labs(title="NYC Yellow Cabs Rides by Date",subtitle = "(Date Range: Jan. 23 - July 24)",y="Ride Count")
+```
+```{r}
+summary(taxi$ride_date)
+```
