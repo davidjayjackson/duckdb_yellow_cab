@@ -1,0 +1,48 @@
+---
+title: "Duckdb/Duckplyr: Cyclistic Data Wrangling"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(janitor)
+library(duckdb)
+library(duckplyr)
+library(scales)
+```
+# Load Data
+
+```{r}
+rides <- duckplyr_df_from_csv("./bike_rides/*.csv")
+dim(rides)
+```
+```{r}
+rides |> count(rideable_type) |> ggplot(aes(x=reorder(rideable_type,n),y=n)) + geom_col() + scale_y_continuous(labels=comma)
+```
+
+```{r}
+rides |> count(member_casual) |> ggplot(aes(x=reorder(member_casual,n),y=n)) + geom_col() + scale_y_continuous(labels=comma)
+```
+# Top 10 Most Popular Start Stations
+
+```{r}
+rides <- rides |> 
+  mutate(start_station_name = if_else(is.na(start_station_name), 
+                                      "ABC Bike Share", 
+                                      start_station_name))
+
+```
+```{r}
+rides |> count(start_station_name, sort=TRUE) |> top_n(10) |>
+  ggplot(aes(x=start_station_name,y=n)) + geom_col() + coord_flip() +
+scale_y_continuous(labels=comma)
+```
+
+```{r}
+rides |> filter(!start_station_name =="ABC Bike Share") |>
+  count(start_station_name, sort=TRUE) |> top_n(10) |>
+  ggplot(aes(x=reorder(start_station_name,n),y=n)) + geom_col() + coord_flip() +
+scale_y_continuous(labels=comma)
+```
