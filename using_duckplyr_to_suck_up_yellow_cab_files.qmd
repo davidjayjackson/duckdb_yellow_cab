@@ -6,31 +6,146 @@ editor: visual
 
 
 ```{r}
+rm(list=ls())
 library(tidyverse)
 library(duckdb)
 library(duckplyr)
 library(lubridate)
+library(e1071)
+library(scales)
+library(rlang)
+```
+```{r}
+
+# Define a function to calculate descriptive statistics including IQR, skewness, kurtosis, and row count
+calculate_descriptive_stats <- function(data, column) {
+  data %>%
+    summarise(
+#      Row_Count = n(),
+      Mean = mean({{ column }}, na.rm = TRUE),
+      Median = median({{ column }}, na.rm = TRUE),
+      Std_Dev = sd({{ column }}, na.rm = TRUE),
+      Variance = var({{ column }}, na.rm = TRUE),
+      Min = min({{ column }}, na.rm = TRUE),
+      Max = max({{ column }}, na.rm = TRUE),
+      Q1 = quantile({{ column }}, 0.25, na.rm = TRUE),
+      Q3 = quantile({{ column }}, 0.75, na.rm = TRUE),
+      IQR = IQR({{ column }}, na.rm = TRUE),
+      Skewness = skewness({{ column }}, na.rm = TRUE),
+      Kurtosis = kurtosis({{ column }}, na.rm = TRUE)
+    )
+}
+```
+```{r}
+# Define a function to detect outliers based on IQR and add a column
+add_outlier_column <- function(df, column) {
+  df %>%
+    mutate(Q1 = quantile({{column}}, 0.25),  # 1st quartile
+           Q3 = quantile({{column}}, 0.75),  # 3rd quartile
+           IQR = Q3 - Q1,  # Interquartile range
+           lower_bound = Q1 - 1.5 * IQR,  # Lower bound
+           upper_bound = Q3 + 1.5 * IQR,  # Upper bound,
+           is_outlier = ifelse({{column}} < lower_bound | {{column}} > upper_bound, TRUE, FALSE)) %>%
+    select(-Q1, -Q3, -IQR, -lower_bound, -upper_bound)  # Remove the intermediate columns
+}
+
+
 ```
 
-# Load NYC Yellow Cab data for most recent 19 months
+# Load NYC Yellow Cab data for most recent 19 months (raw: 61,719,222)
 
 ```{r}
 #| echo: false
-taxi <- duckplyr_df_from_parquet('./Data/*.parquet')
+taxi <- duckplyr_df_from_parquet('./Data/*.parquet') |>
+    filter(tpep_pickup_datetime >="2023-01-01" & tpep_pickup_datetime <="2024-07-31" & fare_amount >0)
+taxi$ride_date <- as.Date(taxi$tpep_pickup_datetime)
 dim(taxi)
 ```
+
+# Hunting for Outliers
+
 ```{r}
-taxi$ride_date <- as.Date(taxi$tpep_pickup_datetime)
+# Trip Distance Outliers 53652076/7957429
+taxi <- add_outlier_column(taxi,trip_distance) |> rename(trip_outlier = is_outlier )
 ```
+
+
+```{r}
+# Fare Amount Outliers 53652076/7957429
+taxi <- add_outlier_column(taxi,fare_amount) |> rename(fare_outlier = is_outlier )
+```
+```{r}
+taxi |> count(trip_outlier)
+```
+```{r}
+taxi |> count(fare_outlier)
+```
+
+```{r}
+outliers_removed <- taxi |> filter(trip_outlier=="FALSE" | fare_outlier =="FALSE")
+```
+
+# descriptive_stats for trip distance
+```{r}
+calculate_descriptive_stats(outliers_removed,trip_distance)
+```
+# descriptive_stats for Fare Amount
+```{r}
+calculate_descriptive_stats(outliers_removed,fare_amount)
+```
+
 # Plot Rides By Date
 
 ```{r}
-taxi |> filter(ride_date >='2023-01-01' & ride_date <='2024-12-31') |>
-  
+outliers_removed |> 
   count(ride_date) |> ggplot(aes(x=ride_date,y=n)) + geom_line() +
   geom_smooth(aes(x=ride_date,y=n)) +
   labs(title="NYC Yellow Cabs Rides by Date",subtitle = "(Date Range: Jan. 23 - July 24)",y="Ride Count")
 ```
 ```{r}
 summary(taxi$ride_date)
+```
+```{r}
+ggplot(outliers_removed) + geom_histogram(aes(x=trip_distance))
+ggplot(outliers_removed) + geom_boxplot(aes(x=trip_distance))
+```
+
+# Let's take a peek at fare amounts
+
+```{r}
+calculate_descriptive_stats(taxi,fare_amount )
+```
+```{r}
+ggplot(outliers_removed) + geom_histogram(aes(x=fare_amount))
+ggplot(outliers_removed) + geom_boxplot(aes(x=fare_amount))
+```
+
+## Mean and Median for Fare Amount and Trip Distance
+
+```{r}
+mean_median <- outliers_removed |> group_by(ride_date) |>
+          summarize(
+            mean_fare = mean(fare_amount),
+            median_fare = median(fare_amount),
+            mean_dist = mean(trip_distance),
+            median_dist = median(trip_distance)
+          )
+```
+```{r}
+mean_median |> ggplot(aes(x=ride_date,y=mean_fare)) + geom_line() +
+  labs(title="Mean/Average Fare Amount by Day")
+```
+
+```{r}
+mean_median |> ggplot(aes(x=ride_date,y=median_fare)) + geom_line() +
+  labs(title="Median Fare Amount by Day")
+```
+```{r}
+mean_median |> ggplot(aes(x=ride_date,y=mean_dist)) + geom_line() +
+  labs(title="Mean/Average Distance by Day")
+```
+
+```{r}
+mean_median |> ggplot(aes(x=ride_date,y=median_dist)) + geom_line() +
+  labs(title="Median Trip Distance  by Day")
 ```
